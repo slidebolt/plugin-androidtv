@@ -1,0 +1,20 @@
+# Build output
+.build/
+*.exe
+*.test
+*.out
+
+# Go workspace/vendor
+vendor/
+
+# Local env and secrets
+.env
+.env.local
+
+# Python helper environment
+venv/
+__pycache__/
+*.pyc
+
+# Local binaries/artifacts
+plugin-test-clean
