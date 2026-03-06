@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"regexp"
 	"sort"
 	"strings"
@@ -14,7 +15,7 @@ import (
 const (
 	googleCastService = "_googlecast._tcp"
 	devicePrefix      = "androidtv-"
-	discoveryTimeout  = 3 * time.Second
+	discoveryTimeout  = 1 * time.Second
 )
 
 var idCleaner = regexp.MustCompile(`[^a-z0-9]+`)
@@ -33,18 +34,23 @@ type discoveredTV struct {
 }
 
 func discoverAndroidTVDevices(ctx context.Context) ([]discoveredTV, error) {
+	log.Printf("plugin-androidtv: starting mDNS discovery (timeout %v)", discoveryTimeout)
 	scanCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
 	defer cancel()
 
+	log.Printf("plugin-androidtv: calling castdns.DiscoverCastDNSEntries")
 	entries, err := castdns.DiscoverCastDNSEntries(scanCtx, nil)
 	if err != nil {
+		log.Printf("plugin-androidtv: castdns error: %v", err)
 		return nil, err
 	}
 
+	log.Printf("plugin-androidtv: reading entries from channel")
 	services := make([]castService, 0)
 	for entry := range entries {
 		services = append(services, castServiceFromDNSEntry(entry))
 	}
+	log.Printf("plugin-androidtv: finished reading entries, found %d services", len(services))
 
 	return devicesFromCastServices(services), nil
 }
