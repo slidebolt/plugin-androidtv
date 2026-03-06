@@ -26,11 +26,6 @@ func (c shellTVCommander) Power(ctx context.Context, ip string, on bool) error {
 	} else if err != errToolMissing {
 		errs = append(errs, err)
 	}
-	if err := tryATVRemotePower(ctx, ip, on); err == nil {
-		return nil
-	} else if err != errToolMissing {
-		errs = append(errs, err)
-	}
 	if len(errs) == 0 {
 		return nil
 	}
@@ -89,20 +84,6 @@ func tryADBPower(ctx context.Context, ip string, on bool) error {
 	}
 	if out, err := exec.CommandContext(ctx, "adb", "-s", target, "shell", "input", "keyevent", keycode).CombinedOutput(); err != nil {
 		return fmt.Errorf("adb keyevent failed: %w (%s)", err, string(out))
-	}
-	return nil
-}
-
-func tryATVRemotePower(ctx context.Context, ip string, on bool) error {
-	if _, err := exec.LookPath("atvremote"); err != nil {
-		return errToolMissing
-	}
-	action := "turn_on"
-	if !on {
-		action = "turn_off"
-	}
-	if out, err := exec.CommandContext(ctx, "atvremote", "--scan-hosts", ip, action).CombinedOutput(); err != nil {
-		return fmt.Errorf("atvremote %s failed: %w (%s)", action, err, string(out))
 	}
 	return nil
 }
