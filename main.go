@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
 
 	entityswitch "github.com/slidebolt/sdk-entities/switch"
 	runner "github.com/slidebolt/sdk-runner"
@@ -19,10 +18,7 @@ type PluginAndroidtvPlugin struct {
 	dataDir   string
 	commander tvCommander
 	eventSink runner.EventSink
-
-	mu       sync.RWMutex
-	devices  map[string]discoveredTV
-	deviceIP map[string]string
+	rawStore  runner.RawStore
 }
 
 type discoveryOverrides struct {
@@ -32,14 +28,9 @@ type discoveryOverrides struct {
 func (p *PluginAndroidtvPlugin) OnInitialize(config runner.Config, state types.Storage) (types.Manifest, types.Storage) {
 	p.dataDir = config.DataDir
 	p.eventSink = config.EventSink
+	p.rawStore = config.RawStore
 	if p.commander == nil {
 		p.commander = shellTVCommander{}
-	}
-	if p.devices == nil {
-		p.devices = map[string]discoveredTV{}
-	}
-	if p.deviceIP == nil {
-		p.deviceIP = map[string]string{}
 	}
 	schemas := append([]types.DomainDescriptor{}, types.CoreDomains()...)
 	schemas = append(schemas, mediaCastDomainDescriptor())
@@ -74,13 +65,13 @@ func (p *PluginAndroidtvPlugin) OnDevicesList(current []types.Device) ([]types.D
 	if err != nil {
 		log.Printf("plugin-androidtv discovery failed: %v", err)
 	} else {
-		latest := p.updateDiscoveredCache(discovered)
-		for _, d := range latest {
+		for _, d := range discovered {
 			if existingDev, ok := existing[d.Device.ID]; ok {
 				existing[d.Device.ID] = runner.ReconcileDevice(existingDev, d.Device)
 			} else {
 				existing[d.Device.ID] = runner.ReconcileDevice(types.Device{}, d.Device)
 			}
+			p.storeDeviceIP(d.Device.ID, d.Address)
 		}
 	}
 
@@ -111,7 +102,19 @@ func (p *PluginAndroidtvPlugin) OnEntitiesList(d string, c []types.Entity) ([]ty
 	if d == "plugin-androidtv" {
 		return c, nil
 	}
-	if !p.isKnownDevice(d) {
+
+	// Check if this is a physical device (has IP in store) or is in current device list
+	hasIP := p.hasDeviceIP(d)
+	if !hasIP {
+		// Check in current entities list
+		for _, ent := range c {
+			if ent.DeviceID == d {
+				hasIP = true
+				break
+			}
+		}
+	}
+	if !hasIP {
 		return c, nil
 	}
 
@@ -176,13 +179,7 @@ func (p *PluginAndroidtvPlugin) handlePowerCommand(req types.Command, entity typ
 	}
 	ip, ok := p.lookupDeviceIP(entity.DeviceID)
 	if !ok {
-		if err := p.refreshDiscoveryCache(); err != nil {
-			log.Printf("plugin-androidtv refresh before command failed: %v", err)
-		}
-		ip, ok = p.lookupDeviceIP(entity.DeviceID)
-		if !ok {
-			log.Printf("plugin-androidtv no device ip for %s; command accepted as best-effort no-op", entity.DeviceID)
-		}
+		log.Printf("plugin-androidtv no device ip for %s; command accepted as best-effort no-op", entity.DeviceID)
 	}
 	turnOn := cmd.Type == entityswitch.ActionTurnOn
 	if ok {
@@ -211,12 +208,6 @@ func (p *PluginAndroidtvPlugin) handleMediaCommand(req types.Command, entity typ
 	}
 
 	ip, ok := p.lookupDeviceIP(entity.DeviceID)
-	if !ok {
-		if err := p.refreshDiscoveryCache(); err != nil {
-			log.Printf("plugin-androidtv refresh before media command failed: %v", err)
-		}
-		ip, ok = p.lookupDeviceIP(entity.DeviceID)
-	}
 	if !ok {
 		return entity, fmt.Errorf("no known ip for device %s", entity.DeviceID)
 	}
@@ -264,42 +255,37 @@ func main() {
 	}
 }
 
-func (p *PluginAndroidtvPlugin) isKnownDevice(deviceID string) bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	_, ok := p.devices[deviceID]
-	return ok
+// storeDeviceIP stores the device IP in RawStore for protocol-specific persistence
+func (p *PluginAndroidtvPlugin) storeDeviceIP(deviceID string, ip string) {
+	if p.rawStore == nil {
+		return
+	}
+	data := map[string]string{"ip": ip}
+	raw, _ := json.Marshal(data)
+	_ = p.rawStore.WriteRawDevice(deviceID, raw)
 }
 
+// lookupDeviceIP retrieves the device IP from RawStore
 func (p *PluginAndroidtvPlugin) lookupDeviceIP(deviceID string) (string, bool) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	ip, ok := p.deviceIP[deviceID]
+	if p.rawStore == nil {
+		return "", false
+	}
+	raw, err := p.rawStore.ReadRawDevice(deviceID)
+	if err != nil {
+		return "", false
+	}
+	var data map[string]string
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return "", false
+	}
+	ip, ok := data["ip"]
 	return ip, ok && ip != ""
 }
 
-func (p *PluginAndroidtvPlugin) refreshDiscoveryCache() error {
-	discovered, err := discoverAndroidTVDevices(context.Background())
-	if err != nil {
-		return err
-	}
-	p.updateDiscoveredCache(discovered)
-	return nil
-}
-
-func (p *PluginAndroidtvPlugin) updateDiscoveredCache(discovered []discoveredTV) map[string]discoveredTV {
-	latest := make(map[string]discoveredTV, len(discovered))
-	for _, d := range discovered {
-		latest[d.Device.ID] = d
-	}
-	p.mu.Lock()
-	p.devices = latest
-	p.deviceIP = map[string]string{}
-	for id, d := range latest {
-		p.deviceIP[id] = d.Address
-	}
-	p.mu.Unlock()
-	return latest
+// hasDeviceIP checks if a device has an IP stored in RawStore
+func (p *PluginAndroidtvPlugin) hasDeviceIP(deviceID string) bool {
+	ip, ok := p.lookupDeviceIP(deviceID)
+	return ok && ip != ""
 }
 
 func upsertEntity(current []types.Entity, want types.Entity) []types.Entity {
