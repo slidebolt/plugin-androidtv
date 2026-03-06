@@ -1,9 +1,13 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/slidebolt/plugin-androidtv/pkg/androidtv"
+)
 
 func TestDevicesFromCastServices_FilterAndDedup(t *testing.T) {
-	services := []castService{
+	services := []androidtv.CastService{
 		{
 			ServiceName: "BRAVIA-4K-VH2-70c3d996b7937b5b5ab80f788cacd65a",
 			HostName:    "70c3d996-b793-7b5b-5ab8-0f788cacd65a.local",
@@ -52,7 +56,7 @@ func TestDevicesFromCastServices_FilterAndDedup(t *testing.T) {
 		},
 	}
 
-	devices := devicesFromCastServices(services)
+	devices := androidtv.DevicesFromCastServices(services)
 	if len(devices) != 2 {
 		t.Fatalf("devices=%d want=2", len(devices))
 	}
@@ -69,7 +73,7 @@ func TestDevicesFromCastServices_FilterAndDedup(t *testing.T) {
 }
 
 func TestIsLikelyAndroidTV(t *testing.T) {
-	services := []castService{
+	services := []androidtv.CastService{
 		{
 			ServiceName: "BRAVIA-4K-VH2",
 			HostName:    "bravia.local",
@@ -87,19 +91,19 @@ func TestIsLikelyAndroidTV(t *testing.T) {
 		},
 	}
 
-	if !isLikelyAndroidTV(services[0]) {
+	if !androidtv.IsLikelyAndroidTV(services[0]) {
 		t.Fatalf("expected BRAVIA to be detected as TV")
 	}
-	if !isLikelyAndroidTV(services[1]) {
+	if !androidtv.IsLikelyAndroidTV(services[1]) {
 		t.Fatalf("expected Smart-TV-Pro to be detected as TV")
 	}
-	if isLikelyAndroidTV(services[2]) {
+	if androidtv.IsLikelyAndroidTV(services[2]) {
 		t.Fatalf("expected Google Home speaker to not be detected as TV")
 	}
 }
 
 func TestMakeDeviceID(t *testing.T) {
-	got := makeDeviceID("c0e7cbe6:3b8b:4f5e:f456:0cbef723d33d")
+	got := androidtv.MakeDeviceID("c0e7cbe6:3b8b:4f5e:f456:0cbef723d33d")
 	want := "androidtv-c0e7cbe6-3b8b-4f5e-f456-0cbef723d33d"
 	if got != want {
 		t.Fatalf("makeDeviceID=%q want=%q", got, want)

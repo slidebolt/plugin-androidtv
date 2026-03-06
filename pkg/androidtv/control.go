@@ -1,4 +1,4 @@
-package main
+package androidtv
 
 import (
 	"context"
@@ -11,19 +11,20 @@ import (
 	"github.com/vishen/go-chromecast/application"
 )
 
-type tvCommander interface {
+// TVCommander defines the interface for controlling Android TV devices
+type TVCommander interface {
 	Power(ctx context.Context, ip string, on bool) error
 	PlayURL(ctx context.Context, ip, url, contentType string) error
 	Stop(ctx context.Context, ip string) error
 }
 
-type shellTVCommander struct{}
+type ShellTVCommander struct{}
 
-func (c shellTVCommander) Power(ctx context.Context, ip string, on bool) error {
+func (c ShellTVCommander) Power(ctx context.Context, ip string, on bool) error {
 	var errs []error
-	if err := tryADBPower(ctx, ip, on); err == nil {
+	if err := TryADBPower(ctx, ip, on); err == nil {
 		return nil
-	} else if err != errToolMissing {
+	} else if err != ErrToolMissing {
 		errs = append(errs, err)
 	}
 	if len(errs) == 0 {
@@ -32,7 +33,7 @@ func (c shellTVCommander) Power(ctx context.Context, ip string, on bool) error {
 	return errs[0]
 }
 
-func (c shellTVCommander) PlayURL(ctx context.Context, ip, url, contentType string) error {
+func (c ShellTVCommander) PlayURL(ctx context.Context, ip, url, contentType string) error {
 	if strings.TrimSpace(contentType) == "" {
 		contentType = inferContentType(url)
 	}
@@ -55,7 +56,7 @@ func (c shellTVCommander) PlayURL(ctx context.Context, ip, url, contentType stri
 	})
 }
 
-func (c shellTVCommander) Stop(ctx context.Context, ip string) error {
+func (c ShellTVCommander) Stop(ctx context.Context, ip string) error {
 	return withCastApp(ip, func(app *application.Application) error {
 		if err := app.Update(); err != nil {
 			return err
@@ -68,11 +69,11 @@ func (c shellTVCommander) Stop(ctx context.Context, ip string) error {
 	})
 }
 
-var errToolMissing = fmt.Errorf("tool missing")
+var ErrToolMissing = fmt.Errorf("tool missing")
 
-func tryADBPower(ctx context.Context, ip string, on bool) error {
+func TryADBPower(ctx context.Context, ip string, on bool) error {
 	if _, err := exec.LookPath("adb"); err != nil {
-		return errToolMissing
+		return ErrToolMissing
 	}
 	target := ip + ":5555"
 	if out, err := exec.CommandContext(ctx, "adb", "connect", target).CombinedOutput(); err != nil {

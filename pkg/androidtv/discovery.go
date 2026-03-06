@@ -1,4 +1,4 @@
-package main
+package androidtv
 
 import (
 	"context"
@@ -13,14 +13,14 @@ import (
 )
 
 const (
-	googleCastService = "_googlecast._tcp"
-	devicePrefix      = "androidtv-"
-	discoveryTimeout  = 1 * time.Second
+	GoogleCastService = "_googlecast._tcp"
+	DevicePrefix      = "androidtv-"
+	DiscoveryTimeout  = 1 * time.Second
 )
 
 var idCleaner = regexp.MustCompile(`[^a-z0-9]+`)
 
-type castService struct {
+type CastService struct {
 	ServiceName string
 	HostName    string
 	Address     string
@@ -28,14 +28,14 @@ type castService struct {
 	TXT         map[string]string
 }
 
-type discoveredTV struct {
+type DiscoveredTV struct {
 	Device  types.Device
 	Address string
 }
 
-func discoverAndroidTVDevices(ctx context.Context) ([]discoveredTV, error) {
-	log.Printf("plugin-androidtv: starting mDNS discovery (timeout %v)", discoveryTimeout)
-	scanCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+func DiscoverAndroidTVDevices(ctx context.Context) ([]DiscoveredTV, error) {
+	log.Printf("plugin-androidtv: starting mDNS discovery (timeout %v)", DiscoveryTimeout)
+	scanCtx, cancel := context.WithTimeout(ctx, DiscoveryTimeout)
 	defer cancel()
 
 	log.Printf("plugin-androidtv: calling castdns.DiscoverCastDNSEntries")
@@ -46,21 +46,21 @@ func discoverAndroidTVDevices(ctx context.Context) ([]discoveredTV, error) {
 	}
 
 	log.Printf("plugin-androidtv: reading entries from channel")
-	services := make([]castService, 0)
+	services := make([]CastService, 0)
 	for entry := range entries {
 		services = append(services, castServiceFromDNSEntry(entry))
 	}
 	log.Printf("plugin-androidtv: finished reading entries, found %d services", len(services))
 
-	return devicesFromCastServices(services), nil
+	return DevicesFromCastServices(services), nil
 }
 
-func castServiceFromDNSEntry(entry castdns.CastEntry) castService {
+func castServiceFromDNSEntry(entry castdns.CastEntry) CastService {
 	address := ""
 	if entry.AddrV4 != nil {
 		address = entry.AddrV4.String()
 	}
-	return castService{
+	return CastService{
 		ServiceName: entry.Name,
 		HostName:    entry.Host,
 		Address:     address,
@@ -69,20 +69,20 @@ func castServiceFromDNSEntry(entry castdns.CastEntry) castService {
 	}
 }
 
-func devicesFromCastServices(services []castService) []discoveredTV {
-	devicesByID := map[string]discoveredTV{}
+func DevicesFromCastServices(services []CastService) []DiscoveredTV {
+	devicesByID := map[string]DiscoveredTV{}
 
 	for _, s := range services {
-		if !isLikelyAndroidTV(s) {
+		if !IsLikelyAndroidTV(s) {
 			continue
 		}
 		sourceID := firstNonEmpty(s.TXT["id"], s.Address, s.ServiceName)
 		if sourceID == "" {
 			continue
 		}
-		deviceID := makeDeviceID(sourceID)
+		deviceID := MakeDeviceID(sourceID)
 		name := firstNonEmpty(s.TXT["fn"], s.TXT["md"], s.ServiceName)
-		next := discoveredTV{
+		next := DiscoveredTV{
 			Address: s.Address,
 			Device: types.Device{
 				ID:         deviceID,
@@ -105,7 +105,7 @@ func devicesFromCastServices(services []castService) []discoveredTV {
 		devicesByID[deviceID] = next
 	}
 
-	devices := make([]discoveredTV, 0, len(devicesByID))
+	devices := make([]DiscoveredTV, 0, len(devicesByID))
 	for _, d := range devicesByID {
 		devices = append(devices, d)
 	}
@@ -113,7 +113,7 @@ func devicesFromCastServices(services []castService) []discoveredTV {
 	return devices
 }
 
-func isLikelyAndroidTV(s castService) bool {
+func IsLikelyAndroidTV(s CastService) bool {
 	if strings.Contains(strings.ToLower(s.TXT["rr"]), "androidnativeapp") {
 		return true
 	}
@@ -131,14 +131,14 @@ func isLikelyAndroidTV(s castService) bool {
 	return false
 }
 
-func makeDeviceID(sourceID string) string {
+func MakeDeviceID(sourceID string) string {
 	cleaned := strings.ToLower(strings.TrimSpace(sourceID))
 	cleaned = idCleaner.ReplaceAllString(cleaned, "-")
 	cleaned = strings.Trim(cleaned, "-")
 	if cleaned == "" {
 		cleaned = "unknown"
 	}
-	return devicePrefix + cleaned
+	return DevicePrefix + cleaned
 }
 
 func firstNonEmpty(values ...string) string {
