@@ -2,28 +2,89 @@ package main
 
 import "testing"
 
-func TestParseGoogleCastServices(t *testing.T) {
-	raw := `
-= enp2s0 IPv4 BRAVIA-4K-VH2-70c3d996b7937b5b5ab80f788cacd65a _googlecast._tcp local
-   hostname = [70c3d996-b793-7b5b-5ab8-0f788cacd65a.local]
-   address = [192.168.88.48]
-   port = [8009]
-   txt = ["fn=SONY XR-77A80J" "md=BRAVIA 4K VH2" "id=70c3d996b7937b5b5ab80f788cacd65a"]
-= enp2s0 IPv4 Smart-TV-Pro-c0e7cbe63b8b4f5ef4560cbef723d33d _googlecast._tcp local
-   hostname = [c0e7cbe6-3b8b-4f5e-f456-0cbef723d33d.local]
-   address = [192.168.88.54]
-   port = [8009]
-   txt = ["rr=AndroidNativeApp" "fn=55R646" "md=Smart TV Pro" "id=c0e7cbe63b8b4f5ef4560cbef723d33d"]
-= enp2s0 IPv4 Google-Home-1234 _googlecast._tcp local
-   hostname = [google-home-1234.local]
-   address = [192.168.88.70]
-   port = [8009]
-   txt = ["fn=Kitchen speaker" "md=Google Home" "id=googlehome1234"]
-`
+func TestDevicesFromCastServices_FilterAndDedup(t *testing.T) {
+	services := []castService{
+		{
+			ServiceName: "BRAVIA-4K-VH2-70c3d996b7937b5b5ab80f788cacd65a",
+			HostName:    "70c3d996-b793-7b5b-5ab8-0f788cacd65a.local",
+			Address:     "192.168.88.48",
+			Port:        8009,
+			TXT: map[string]string{
+				"fn": "SONY XR-77A80J",
+				"md": "BRAVIA 4K VH2",
+				"id": "70c3d996b7937b5b5ab80f788cacd65a",
+			},
+		},
+		{
+			ServiceName: "Smart-TV-Pro-c0e7cbe63b8b4f5ef4560cbef723d33d",
+			HostName:    "c0e7cbe6-3b8b-4f5e-f456-0cbef723d33d.local",
+			Address:     "192.168.88.54",
+			Port:        8009,
+			TXT: map[string]string{
+				"rr": "AndroidNativeApp",
+				"fn": "55R646",
+				"md": "Smart TV Pro",
+				"id": "c0e7cbe63b8b4f5ef4560cbef723d33d",
+			},
+		},
+		{
+			ServiceName: "Google-Home-1234",
+			HostName:    "google-home-1234.local",
+			Address:     "192.168.88.70",
+			Port:        8009,
+			TXT: map[string]string{
+				"fn": "Kitchen speaker",
+				"md": "Google Home",
+				"id": "googlehome1234",
+			},
+		},
+		{
+			ServiceName: "Smart-TV-Pro-c0e7cbe63b8b4f5ef4560cbef723d33d-v6",
+			HostName:    "c0e7cbe6-3b8b-4f5e-f456-0cbef723d33d.local",
+			Address:     "",
+			Port:        8009,
+			TXT: map[string]string{
+				"rr": "AndroidNativeApp",
+				"fn": "55R646",
+				"md": "Smart TV Pro",
+				"id": "c0e7cbe63b8b4f5ef4560cbef723d33d",
+			},
+		},
+	}
 
-	services := parseGoogleCastServices(raw)
-	if len(services) != 3 {
-		t.Fatalf("services=%d want=3", len(services))
+	devices := devicesFromCastServices(services)
+	if len(devices) != 2 {
+		t.Fatalf("devices=%d want=2", len(devices))
+	}
+
+	if devices[0].Device.ID != "androidtv-70c3d996b7937b5b5ab80f788cacd65a" {
+		t.Fatalf("first device id=%q", devices[0].Device.ID)
+	}
+	if devices[1].Device.ID != "androidtv-c0e7cbe63b8b4f5ef4560cbef723d33d" {
+		t.Fatalf("second device id=%q", devices[1].Device.ID)
+	}
+	if devices[1].Address != "192.168.88.54" {
+		t.Fatalf("expected deduped device to keep ipv4 address, got=%q", devices[1].Address)
+	}
+}
+
+func TestIsLikelyAndroidTV(t *testing.T) {
+	services := []castService{
+		{
+			ServiceName: "BRAVIA-4K-VH2",
+			HostName:    "bravia.local",
+			TXT:         map[string]string{"md": "BRAVIA 4K VH2"},
+		},
+		{
+			ServiceName: "Smart-TV-Pro",
+			HostName:    "smarttv.local",
+			TXT:         map[string]string{"rr": "AndroidNativeApp", "md": "Smart TV Pro"},
+		},
+		{
+			ServiceName: "Google-Home-1234",
+			HostName:    "speaker.local",
+			TXT:         map[string]string{"md": "Google Home", "fn": "Kitchen speaker"},
+		},
 	}
 
 	if !isLikelyAndroidTV(services[0]) {

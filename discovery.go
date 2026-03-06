@@ -2,19 +2,19 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"os/exec"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
+	"time"
 
 	"github.com/slidebolt/sdk-types"
+	castdns "github.com/vishen/go-chromecast/dns"
 )
 
 const (
 	googleCastService = "_googlecast._tcp"
 	devicePrefix      = "androidtv-"
+	discoveryTimeout  = 3 * time.Second
 )
 
 var idCleaner = regexp.MustCompile(`[^a-z0-9]+`)
@@ -33,11 +33,37 @@ type discoveredTV struct {
 }
 
 func discoverAndroidTVDevices(ctx context.Context) ([]discoveredTV, error) {
-	out, err := exec.CommandContext(ctx, "avahi-browse", "-rt", googleCastService).CombinedOutput()
+	scanCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+
+	entries, err := castdns.DiscoverCastDNSEntries(scanCtx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("avahi-browse failed: %w (%s)", err, strings.TrimSpace(string(out)))
+		return nil, err
 	}
-	services := parseGoogleCastServices(string(out))
+
+	services := make([]castService, 0)
+	for entry := range entries {
+		services = append(services, castServiceFromDNSEntry(entry))
+	}
+
+	return devicesFromCastServices(services), nil
+}
+
+func castServiceFromDNSEntry(entry castdns.CastEntry) castService {
+	address := ""
+	if entry.AddrV4 != nil {
+		address = entry.AddrV4.String()
+	}
+	return castService{
+		ServiceName: entry.Name,
+		HostName:    entry.Host,
+		Address:     address,
+		Port:        entry.Port,
+		TXT:         entry.InfoFields,
+	}
+}
+
+func devicesFromCastServices(services []castService) []discoveredTV {
 	devicesByID := map[string]discoveredTV{}
 
 	for _, s := range services {
@@ -78,95 +104,7 @@ func discoverAndroidTVDevices(ctx context.Context) ([]discoveredTV, error) {
 		devices = append(devices, d)
 	}
 	sort.Slice(devices, func(i, j int) bool { return devices[i].Device.ID < devices[j].Device.ID })
-	return devices, nil
-}
-
-func parseGoogleCastServices(raw string) []castService {
-	lines := strings.Split(raw, "\n")
-	services := make([]castService, 0)
-	var cur *castService
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "= ") {
-			if cur != nil {
-				services = append(services, *cur)
-			}
-			cur = parseServiceHeader(trimmed)
-			continue
-		}
-		if cur == nil {
-			continue
-		}
-
-		switch {
-		case strings.HasPrefix(trimmed, "hostname = ["):
-			cur.HostName = parseBracketValue(trimmed, "hostname = [")
-		case strings.HasPrefix(trimmed, "address = ["):
-			addr := parseBracketValue(trimmed, "address = [")
-			if addr != "" && !strings.Contains(addr, ":") {
-				cur.Address = addr
-			}
-		case strings.HasPrefix(trimmed, "port = ["):
-			portStr := parseBracketValue(trimmed, "port = [")
-			port, err := strconv.Atoi(portStr)
-			if err == nil {
-				cur.Port = port
-			}
-		case strings.HasPrefix(trimmed, "txt = ["):
-			cur.TXT = parseTXTRecordLine(trimmed)
-		}
-	}
-	if cur != nil {
-		services = append(services, *cur)
-	}
-
-	return services
-}
-
-func parseServiceHeader(line string) *castService {
-	fields := strings.Fields(line)
-	for i := 0; i < len(fields); i++ {
-		if fields[i] != googleCastService {
-			continue
-		}
-		if i < 1 {
-			return nil
-		}
-		return &castService{
-			ServiceName: fields[i-1],
-			TXT:         map[string]string{},
-		}
-	}
-	return nil
-}
-
-func parseBracketValue(line, prefix string) string {
-	if !strings.HasPrefix(line, prefix) {
-		return ""
-	}
-	out := strings.TrimPrefix(line, prefix)
-	out = strings.TrimSuffix(out, "]")
-	return strings.TrimSpace(out)
-}
-
-func parseTXTRecordLine(line string) map[string]string {
-	records := map[string]string{}
-	// Example: txt = ["k=v" "k2=v2" "flag"]
-	parts := strings.Split(line, "\"")
-	for i := 1; i < len(parts); i += 2 {
-		token := strings.TrimSpace(parts[i])
-		if token == "" {
-			continue
-		}
-		key, val, ok := strings.Cut(token, "=")
-		if !ok {
-			records[token] = ""
-			continue
-		}
-		records[key] = val
-	}
-	return records
+	return devices
 }
 
 func isLikelyAndroidTV(s castService) bool {
