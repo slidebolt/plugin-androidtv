@@ -139,6 +139,13 @@ func (p *PluginAdapter) OnEntitiesList(d string, c []types.Entity) ([]types.Enti
 		LocalName: "Media",
 		Actions:   []string{actionPlayURL, actionStop},
 	})
+	// Add availability entity for device status monitoring
+	c = upsertEntity(c, types.Entity{
+		ID:        "availability",
+		DeviceID:  d,
+		Domain:    "binary_sensor",
+		LocalName: "Availability",
+	})
 	sort.Slice(c, func(i, j int) bool { return c[i].ID < c[j].ID })
 	return c, nil
 }
@@ -182,25 +189,25 @@ func (p *PluginAdapter) OnCommand(req types.Command, entity types.Entity) (types
 func (p *PluginAdapter) handlePowerCommand(req types.Command, entity types.Entity) (types.Entity, error) {
 	cmd, err := entityswitch.ParseCommand(req)
 	if err != nil {
-		return entity, err
+		return p.setEntityError(entity, req, err)
 	}
+
 	ip, ok := p.lookupDeviceIP(entity.DeviceID)
 	if !ok {
-		log.Printf("plugin-androidtv no device ip for %s; command accepted as best-effort no-op", entity.DeviceID)
+		return p.setEntityError(entity, req, fmt.Errorf("device offline: no IP address known"))
 	}
+
 	turnOn := cmd.Type == entityswitch.ActionTurnOn
-	if ok {
-		if err := p.commander.Power(context.Background(), ip, turnOn); err != nil {
-			log.Printf("plugin-androidtv power command failed for %s (%s): %v", entity.DeviceID, ip, err)
-		}
-	} else {
-		log.Printf("plugin-androidtv power command skipped for %s (no known ip)", entity.DeviceID)
+	if err := p.commander.Power(context.Background(), ip, turnOn); err != nil {
+		return p.setEntityError(entity, req, fmt.Errorf("power command failed: %w", err))
 	}
+
 	store := entityswitch.Bind(&entity)
 	if err := store.SetDesiredFromCommand(cmd); err != nil {
 		return entity, err
 	}
-	entity.Data.SyncStatus = "pending"
+	entity.Data.SyncStatus = "synced"
+	entity.Data.Reported = mustJSON(map[string]any{"power": turnOn})
 	p.emitCommandAck(req, entity, map[string]any{"type": "power_ack", "power": cmd.Type})
 	return entity, nil
 }
@@ -208,22 +215,23 @@ func (p *PluginAdapter) handlePowerCommand(req types.Command, entity types.Entit
 func (p *PluginAdapter) handleMediaCommand(req types.Command, entity types.Entity) (types.Entity, error) {
 	var cmd mediaCastCommand
 	if err := json.Unmarshal(req.Payload, &cmd); err != nil {
-		return entity, fmt.Errorf("invalid media command payload: %w", err)
+		return p.setEntityError(entity, req, fmt.Errorf("invalid media command payload: %w", err))
 	}
 	if err := cmd.Validate(); err != nil {
-		return entity, err
+		return p.setEntityError(entity, req, err)
 	}
 
 	ip, ok := p.lookupDeviceIP(entity.DeviceID)
 	if !ok {
-		return entity, fmt.Errorf("no known ip for device %s", entity.DeviceID)
+		return p.setEntityError(entity, req, fmt.Errorf("device offline: no IP address known"))
 	}
 
 	switch cmd.Type {
 	case actionPlayURL:
 		go func(deviceID string, command mediaCastCommand) {
 			if err := p.commander.PlayURL(context.Background(), ip, command.URL, command.ContentType); err != nil {
-				log.Printf("plugin-androidtv async play_url failed for %s (%s): %v", deviceID, ip, err)
+				// Async error - emit event to update entity status
+				p.emitAsyncError(deviceID, "media", fmt.Errorf("play_url failed: %w", err))
 			}
 		}(entity.DeviceID, cmd)
 		entity.Data.Desired = mustJSON(map[string]any{
@@ -234,7 +242,8 @@ func (p *PluginAdapter) handleMediaCommand(req types.Command, entity types.Entit
 	case actionStop:
 		go func(deviceID string) {
 			if err := p.commander.Stop(context.Background(), ip); err != nil {
-				log.Printf("plugin-androidtv async stop failed for %s (%s): %v", deviceID, ip, err)
+				// Async error - emit event to update entity status
+				p.emitAsyncError(deviceID, "media", fmt.Errorf("stop failed: %w", err))
 			}
 		}(entity.DeviceID)
 		entity.Data.Desired = mustJSON(map[string]any{"state": "stopped"})
@@ -298,5 +307,35 @@ func (p *PluginAdapter) emitCommandAck(req types.Command, entity types.Entity, p
 		EntityID:      entity.ID,
 		CorrelationID: req.ID,
 		Payload:       raw,
+	})
+}
+
+// setEntityError sets the entity state to failed with error information
+func (p *PluginAdapter) setEntityError(entity types.Entity, req types.Command, err error) (types.Entity, error) {
+	entity.Data.SyncStatus = "failed"
+	entity.Data.Reported = mustJSON(map[string]any{
+		"error": err.Error(),
+	})
+	p.emitCommandAck(req, entity, map[string]any{
+		"type":  "error",
+		"error": err.Error(),
+	})
+	return entity, err
+}
+
+// emitAsyncError emits an error event for async command failures
+func (p *PluginAdapter) emitAsyncError(deviceID, entityID string, err error) {
+	if p.eventSink == nil {
+		return
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"type":   "async_error",
+		"entity": entityID,
+		"error":  err.Error(),
+	})
+	_ = p.eventSink.EmitEvent(types.InboundEvent{
+		DeviceID: deviceID,
+		EntityID: entityID,
+		Payload:  raw,
 	})
 }
