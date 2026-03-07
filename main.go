@@ -9,11 +9,7 @@ import (
 )
 
 func main() {
-	r, err := runner.NewRunner(&PluginAdapter{})
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := r.Run(); err != nil {
+	if err := runner.RunCLI(func() runner.Plugin { return &PluginAdapter{} }); err != nil {
 		log.Fatal(err)
 	}
 }

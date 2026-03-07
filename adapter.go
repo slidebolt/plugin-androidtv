@@ -206,7 +206,7 @@ func (p *PluginAdapter) handlePowerCommand(req types.Command, entity types.Entit
 	if err := store.SetDesiredFromCommand(cmd); err != nil {
 		return entity, err
 	}
-	entity.Data.SyncStatus = "synced"
+	entity.Data.SyncStatus = types.SyncStatusSynced
 	entity.Data.Reported = mustJSON(map[string]any{"power": turnOn})
 	p.emitCommandAck(req, entity, map[string]any{"type": "power_ack", "power": cmd.Type})
 	return entity, nil
@@ -228,33 +228,45 @@ func (p *PluginAdapter) handleMediaCommand(req types.Command, entity types.Entit
 
 	switch cmd.Type {
 	case actionPlayURL:
-		go func(deviceID string, command mediaCastCommand) {
-			if err := p.commander.PlayURL(context.Background(), ip, command.URL, command.ContentType); err != nil {
-				// Async error - emit event to update entity status
-				p.emitAsyncError(deviceID, "media", fmt.Errorf("play_url failed: %w", err))
-			}
-		}(entity.DeviceID, cmd)
 		entity.Data.Desired = mustJSON(map[string]any{
 			"state":        "playing",
 			"url":          cmd.URL,
 			"content_type": cmd.ContentType,
 		})
-	case actionStop:
-		go func(deviceID string) {
-			if err := p.commander.Stop(context.Background(), ip); err != nil {
-				// Async error - emit event to update entity status
-				p.emitAsyncError(deviceID, "media", fmt.Errorf("stop failed: %w", err))
+		entity.Data.SyncStatus = types.SyncStatusPending
+		p.emitCommandAck(req, entity, map[string]any{
+			"type":   "media_ack",
+			"action": cmd.Type,
+			"url":    cmd.URL,
+			"mode":   "async",
+		})
+		go func(deviceID, correlationID string, command mediaCastCommand) {
+			if err := p.commander.PlayURL(context.Background(), ip, command.URL, command.ContentType); err != nil {
+				p.emitAsyncError(deviceID, "media", correlationID, fmt.Errorf("play_url failed: %w", err))
+				return
 			}
-		}(entity.DeviceID)
+			p.emitCommandAck(types.Command{ID: correlationID}, types.Entity{DeviceID: deviceID, ID: "media"}, map[string]any{
+				"type":   "media_play_started",
+				"action": command.Type,
+				"url":    command.URL,
+			})
+		}(entity.DeviceID, req.ID, cmd)
+		return entity, nil
+	case actionStop:
+		if err := p.commander.Stop(context.Background(), ip); err != nil {
+			return p.setEntityError(entity, req, fmt.Errorf("stop failed: %w", err))
+		}
 		entity.Data.Desired = mustJSON(map[string]any{"state": "stopped"})
+		entity.Data.Reported = mustJSON(map[string]any{"state": "stopped"})
+		entity.Data.SyncStatus = types.SyncStatusSynced
+		p.emitCommandAck(req, entity, map[string]any{
+			"type":   "media_ack",
+			"action": cmd.Type,
+			"url":    cmd.URL,
+		})
+		return entity, nil
 	}
-	entity.Data.SyncStatus = "pending"
-	p.emitCommandAck(req, entity, map[string]any{
-		"type":   "media_ack",
-		"action": cmd.Type,
-		"url":    cmd.URL,
-	})
-	return entity, nil
+	return p.setEntityError(entity, req, fmt.Errorf("unsupported media action: %s", cmd.Type))
 }
 
 func (p *PluginAdapter) OnEvent(evt types.Event, entity types.Entity) (types.Entity, error) {
@@ -312,7 +324,7 @@ func (p *PluginAdapter) emitCommandAck(req types.Command, entity types.Entity, p
 
 // setEntityError sets the entity state to failed with error information
 func (p *PluginAdapter) setEntityError(entity types.Entity, req types.Command, err error) (types.Entity, error) {
-	entity.Data.SyncStatus = "failed"
+	entity.Data.SyncStatus = types.SyncStatusFailed
 	entity.Data.Reported = mustJSON(map[string]any{
 		"error": err.Error(),
 	})
@@ -323,8 +335,8 @@ func (p *PluginAdapter) setEntityError(entity types.Entity, req types.Command, e
 	return entity, err
 }
 
-// emitAsyncError emits an error event for async command failures
-func (p *PluginAdapter) emitAsyncError(deviceID, entityID string, err error) {
+// emitAsyncError emits an error event for async command failures.
+func (p *PluginAdapter) emitAsyncError(deviceID, entityID, correlationID string, err error) {
 	if p.eventSink == nil {
 		return
 	}
@@ -334,8 +346,9 @@ func (p *PluginAdapter) emitAsyncError(deviceID, entityID string, err error) {
 		"error":  err.Error(),
 	})
 	_ = p.eventSink.EmitEvent(types.InboundEvent{
-		DeviceID: deviceID,
-		EntityID: entityID,
-		Payload:  raw,
+		DeviceID:      deviceID,
+		EntityID:      entityID,
+		CorrelationID: correlationID,
+		Payload:       raw,
 	})
 }
