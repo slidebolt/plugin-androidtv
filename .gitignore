@@ -18,3 +18,5 @@ __pycache__/
 
 # Local binaries/artifacts
 plugin-test-clean
+
+scripts/.release_guard
