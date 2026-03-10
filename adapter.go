@@ -51,7 +51,7 @@ func (p *PluginAdapter) WaitReady(ctx context.Context) error {
 
 func (p *PluginAdapter) OnShutdown()                    {}
 func (p *PluginAdapter) OnHealthCheck() (string, error) { return "perfect", nil }
-func (p *PluginAdapter) OnStorageUpdate(current types.Storage) (types.Storage, error) {
+func (p *PluginAdapter) OnConfigUpdate(current types.Storage) (types.Storage, error) {
 	return current, nil
 }
 
@@ -62,7 +62,7 @@ func (p *PluginAdapter) OnDeviceUpdate(dev types.Device) (types.Device, error) {
 	return dev, nil
 }
 func (p *PluginAdapter) OnDeviceDelete(id string) error { return nil }
-func (p *PluginAdapter) OnDevicesList(current []types.Device) ([]types.Device, error) {
+func (p *PluginAdapter) OnDeviceDiscover(current []types.Device) ([]types.Device, error) {
 	existing := map[string]types.Device{}
 	for _, d := range current {
 		existing[d.ID] = d
@@ -96,7 +96,7 @@ func (p *PluginAdapter) OnDeviceSearch(q types.SearchQuery, res []types.Device) 
 func (p *PluginAdapter) OnEntityCreate(e types.Entity) (types.Entity, error) { return e, nil }
 func (p *PluginAdapter) OnEntityUpdate(e types.Entity) (types.Entity, error) { return e, nil }
 func (p *PluginAdapter) OnEntityDelete(d, e string) error                    { return nil }
-func (p *PluginAdapter) OnEntitiesList(d string, c []types.Entity) ([]types.Entity, error) {
+func (p *PluginAdapter) OnEntityDiscover(d string, c []types.Entity) ([]types.Entity, error) {
 	if ov, ok := p.loadEntityOverride(d); ok {
 		for i := range ov {
 			if ov[i].DeviceID == "" {
