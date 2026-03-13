@@ -40,3 +40,62 @@ func mustJSON(v any) json.RawMessage {
 	}
 	return b
 }
+
+func reconcileDevice(existing types.Device, discovered types.Device) types.Device {
+	if discovered.SourceID == "" {
+		discovered.SourceID = discovered.ID
+	}
+	if existing.ID == "" {
+		discovered.LocalName = ""
+		if discovered.Labels == nil {
+			discovered.Labels = make(map[string][]string)
+		}
+		return discovered
+	}
+
+	result := existing
+	result.SourceID = discovered.SourceID
+	result.SourceName = discovered.SourceName
+	if result.Labels == nil {
+		result.Labels = make(map[string][]string)
+	}
+	for k, v := range discovered.Labels {
+		if _, ok := result.Labels[k]; !ok {
+			result.Labels[k] = v
+		}
+	}
+	return result
+}
+
+func ensureCoreDevice(pluginID string, current []types.Device) []types.Device {
+	coreID := types.CoreDeviceID(pluginID)
+	for _, d := range current {
+		if d.ID == coreID {
+			return current
+		}
+	}
+	return append(current, reconcileDevice(types.Device{}, types.Device{
+		ID:         coreID,
+		SourceID:   coreID,
+		SourceName: pluginID,
+	}))
+}
+
+func ensureCoreEntities(pluginID, deviceID string, current []types.Entity) []types.Entity {
+	if deviceID != types.CoreDeviceID(pluginID) {
+		return current
+	}
+	for _, need := range types.CoreEntities(pluginID) {
+		found := false
+		for _, e := range current {
+			if e.ID == need.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			current = append(current, need)
+		}
+	}
+	return current
+}

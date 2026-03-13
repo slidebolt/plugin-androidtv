@@ -23,14 +23,15 @@ type discoveryOverrides struct {
 type PluginAdapter struct {
 	dataDir   string
 	commander androidtv.TVCommander
-	eventSink runner.EventSink
-	rawStore  runner.RawStore
+	pctx      runner.PluginContext
 }
 
-func (p *PluginAdapter) OnInitialize(config runner.Config, state types.Storage) (types.Manifest, types.Storage) {
-	p.dataDir = config.DataDir
-	p.eventSink = config.EventSink
-	p.rawStore = config.RawStore
+func (p *PluginAdapter) Initialize(ctx runner.PluginContext) (types.Manifest, error) {
+	p.pctx = ctx
+	p.dataDir = os.Getenv("PLUGIN_DATA_DIR")
+	if p.dataDir == "" {
+		p.dataDir = "."
+	}
 	if p.commander == nil {
 		p.commander = androidtv.ShellTVCommander{}
 	}
@@ -41,19 +42,22 @@ func (p *PluginAdapter) OnInitialize(config runner.Config, state types.Storage) 
 		Name:    "Android TV Plugin",
 		Version: "1.0.0",
 		Schemas: schemas,
-	}, state
+	}, nil
 }
 
-func (p *PluginAdapter) OnReady() {}
-func (p *PluginAdapter) WaitReady(ctx context.Context) error {
-	return nil
-}
+func (p *PluginAdapter) Start(ctx context.Context) error { return nil }
+func (p *PluginAdapter) Stop() error                     { return nil }
 
-func (p *PluginAdapter) OnShutdown()                    {}
+func (p *PluginAdapter) OnReset() error {
+	if p.pctx.Registry == nil {
+		return nil
+	}
+	for _, dev := range p.pctx.Registry.LoadDevices() {
+		_ = p.pctx.Registry.DeleteDevice(dev.ID)
+	}
+	return p.pctx.Registry.DeleteState()
+}
 func (p *PluginAdapter) OnHealthCheck() (string, error) { return "perfect", nil }
-func (p *PluginAdapter) OnConfigUpdate(current types.Storage) (types.Storage, error) {
-	return current, nil
-}
 
 func (p *PluginAdapter) OnDeviceCreate(dev types.Device) (types.Device, error) {
 	return dev, nil
@@ -74,9 +78,9 @@ func (p *PluginAdapter) OnDeviceDiscover(current []types.Device) ([]types.Device
 	} else {
 		for _, d := range discovered {
 			if existingDev, ok := existing[d.Device.ID]; ok {
-				existing[d.Device.ID] = runner.ReconcileDevice(existingDev, d.Device)
+				existing[d.Device.ID] = reconcileDevice(existingDev, d.Device)
 			} else {
-				existing[d.Device.ID] = runner.ReconcileDevice(types.Device{}, d.Device)
+				existing[d.Device.ID] = reconcileDevice(types.Device{}, d.Device)
 			}
 			p.storeDeviceIP(d.Device.ID, d.Address)
 		}
@@ -87,7 +91,7 @@ func (p *PluginAdapter) OnDeviceDiscover(current []types.Device) ([]types.Device
 		out = append(out, d)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return runner.EnsureCoreDevice("plugin-androidtv", out), nil
+	return ensureCoreDevice("plugin-androidtv", out), nil
 }
 func (p *PluginAdapter) OnDeviceSearch(q types.SearchQuery, res []types.Device) ([]types.Device, error) {
 	return res, nil
@@ -105,7 +109,7 @@ func (p *PluginAdapter) OnEntityDiscover(d string, c []types.Entity) ([]types.En
 		}
 		return ov, nil
 	}
-	c = runner.EnsureCoreEntities("plugin-androidtv", d, c)
+	c = ensureCoreEntities("plugin-androidtv", d, c)
 	if d == "plugin-androidtv" {
 		return c, nil
 	}
@@ -175,15 +179,26 @@ func (p *PluginAdapter) loadEntityOverride(deviceID string) ([]types.Entity, boo
 	return out, true
 }
 
-func (p *PluginAdapter) OnCommand(req types.Command, entity types.Entity) (types.Entity, error) {
+func (p *PluginAdapter) OnCommand(req types.Command, entity types.Entity) error {
+	var (
+		updated types.Entity
+		err     error
+	)
 	switch {
 	case entity.ID == "power" && entity.Domain == entityswitch.Type:
-		return p.handlePowerCommand(req, entity)
+		updated, err = p.handlePowerCommand(req, entity)
 	case entity.ID == "media" && entity.Domain == domainMediaCast:
-		return p.handleMediaCommand(req, entity)
+		updated, err = p.handleMediaCommand(req, entity)
 	default:
-		return entity, fmt.Errorf("unsupported entity command: %s (%s)", entity.ID, entity.Domain)
+		return fmt.Errorf("unsupported entity command: %s (%s)", entity.ID, entity.Domain)
 	}
+	if err != nil {
+		return err
+	}
+	if p.pctx.Registry != nil && updated.ID != "" && updated.DeviceID != "" {
+		_ = p.pctx.Registry.SaveEntity(updated)
+	}
+	return nil
 }
 
 func (p *PluginAdapter) handlePowerCommand(req types.Command, entity types.Entity) (types.Entity, error) {
@@ -273,48 +288,47 @@ func (p *PluginAdapter) OnEvent(evt types.Event, entity types.Entity) (types.Ent
 	return entity, nil
 }
 
-// storeDeviceIP stores the device IP in RawStore for protocol-specific persistence
+// storeDeviceIP stores the device IP in local plugin state for protocol-specific persistence.
 func (p *PluginAdapter) storeDeviceIP(deviceID string, ip string) {
-	if p.rawStore == nil {
+	if p.pctx.Registry == nil || ip == "" {
 		return
 	}
-	data := map[string]string{"ip": ip}
-	raw, _ := json.Marshal(data)
-	_ = p.rawStore.WriteRawDevice(deviceID, raw)
+	s := p.loadPersistentState()
+	if s.DeviceIPs == nil {
+		s.DeviceIPs = map[string]string{}
+	}
+	if s.DeviceIPs[deviceID] == ip {
+		return
+	}
+	s.DeviceIPs[deviceID] = ip
+	p.savePersistentState(s)
 }
 
-// lookupDeviceIP retrieves the device IP from RawStore
+// lookupDeviceIP retrieves the device IP from local plugin state.
 func (p *PluginAdapter) lookupDeviceIP(deviceID string) (string, bool) {
-	if p.rawStore == nil {
+	if p.pctx.Registry == nil {
 		return "", false
 	}
-	raw, err := p.rawStore.ReadRawDevice(deviceID)
-	if err != nil {
-		return "", false
-	}
-	var data map[string]string
-	if err := json.Unmarshal(raw, &data); err != nil {
-		return "", false
-	}
-	ip, ok := data["ip"]
+	s := p.loadPersistentState()
+	ip, ok := s.DeviceIPs[deviceID]
 	return ip, ok && ip != ""
 }
 
-// hasDeviceIP checks if a device has an IP stored in RawStore
+// hasDeviceIP checks if a device has an IP in local plugin state.
 func (p *PluginAdapter) hasDeviceIP(deviceID string) bool {
 	ip, ok := p.lookupDeviceIP(deviceID)
 	return ok && ip != ""
 }
 
 func (p *PluginAdapter) emitCommandAck(req types.Command, entity types.Entity, payload map[string]any) {
-	if p.eventSink == nil {
+	if p.pctx.Events == nil {
 		return
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return
 	}
-	_ = p.eventSink.EmitEvent(types.InboundEvent{
+	_ = p.pctx.Events.PublishEvent(types.InboundEvent{
 		DeviceID:      entity.DeviceID,
 		EntityID:      entity.ID,
 		CorrelationID: req.ID,
@@ -337,7 +351,7 @@ func (p *PluginAdapter) setEntityError(entity types.Entity, req types.Command, e
 
 // emitAsyncError emits an error event for async command failures.
 func (p *PluginAdapter) emitAsyncError(deviceID, entityID, correlationID string, err error) {
-	if p.eventSink == nil {
+	if p.pctx.Events == nil {
 		return
 	}
 	raw, _ := json.Marshal(map[string]any{
@@ -345,10 +359,43 @@ func (p *PluginAdapter) emitAsyncError(deviceID, entityID, correlationID string,
 		"entity": entityID,
 		"error":  err.Error(),
 	})
-	_ = p.eventSink.EmitEvent(types.InboundEvent{
+	_ = p.pctx.Events.PublishEvent(types.InboundEvent{
 		DeviceID:      deviceID,
 		EntityID:      entityID,
 		CorrelationID: correlationID,
 		Payload:       raw,
 	})
+}
+
+type pluginState struct {
+	DeviceIPs map[string]string `json:"device_ips,omitempty"`
+}
+
+func (p *PluginAdapter) loadPersistentState() pluginState {
+	if p.pctx.Registry == nil {
+		return pluginState{}
+	}
+	raw, ok := p.pctx.Registry.LoadState()
+	if !ok || len(raw.Data) == 0 {
+		return pluginState{DeviceIPs: map[string]string{}}
+	}
+	var s pluginState
+	if err := json.Unmarshal(raw.Data, &s); err != nil {
+		return pluginState{DeviceIPs: map[string]string{}}
+	}
+	if s.DeviceIPs == nil {
+		s.DeviceIPs = map[string]string{}
+	}
+	return s
+}
+
+func (p *PluginAdapter) savePersistentState(s pluginState) {
+	if p.pctx.Registry == nil {
+		return
+	}
+	raw, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+	_ = p.pctx.Registry.SaveState(types.Storage{Data: raw})
 }
