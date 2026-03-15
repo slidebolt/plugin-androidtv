@@ -82,6 +82,16 @@ github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
 github.com/sirupsen/logrus v1.9.3 h1:dueUQJ1C2q9oE3F7wvmSGAaVtTmUizReu6fjN8uqzbQ=
 github.com/sirupsen/logrus v1.9.3/go.mod h1:naHLuLoDiP4jHNo9R0sCBMtWGeIprob74mVsIT4qYEQ=
+github.com/slidebolt/registry v0.0.5 h1:dsOBYRzboOWOmO8XvNm/ZzS+iRVx+nL6Pna/Vk5WbhQ=
+github.com/slidebolt/registry v0.0.5/go.mod h1:w0XTGNof+0OewtR2vCEKhynNrfbyiBjJA1JrRdD7YKQ=
+github.com/slidebolt/sdk-entities v1.20.4 h1:xrLcCccNFtRF3Lc26mjlTkoznlo5YuXDEY4+BNjedIU=
+github.com/slidebolt/sdk-entities v1.20.4/go.mod h1:1tNGLwulJ3LtCqopJ+L++DZO2m5D6a6k2aJxQxC98t4=
+github.com/slidebolt/sdk-integration-testing v0.0.3 h1:ok0rlGIFGpLWDNUoerZkdgYESHEBrABApPHOeZlHgzU=
+github.com/slidebolt/sdk-integration-testing v0.0.3/go.mod h1:7J8L7o0+mEK7VipDBMSQoEJGwpaLBvXr5tdei8ecrhs=
+github.com/slidebolt/sdk-runner v1.20.3 h1:CZCK7UkLmtxplXYEhkFDyrOcLvWzhYSkvUEu/BstpXw=
+github.com/slidebolt/sdk-runner v1.20.3/go.mod h1:fAF9V9I6f2e3hE3N5zSgMTO0Vuoxcwg21ql15d8cMK0=
+github.com/slidebolt/sdk-types v1.20.7 h1:Po7CNfEHXAjT+At2EQYvUzTnj0adj/TzFek/Mhf6E0A=
+github.com/slidebolt/sdk-types v1.20.7/go.mod h1:/hqN6E9IAc5mm4Nx4DGfIidoKgELdPHfr30uSdNRgTM=
 github.com/spf13/cobra v1.7.0/go.mod h1:uLxZILRyS/50WlhOIKD7W6V5bgeIt+4sICxh6uRMrb0=
 github.com/spf13/pflag v1.0.5/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
 github.com/spf13/pflag v1.0.7/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An2Bg=
