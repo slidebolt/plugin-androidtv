@@ -7,7 +7,7 @@ require (
 	github.com/slidebolt/sdk-entities v1.20.2
 	github.com/slidebolt/sdk-integration-testing v0.0.3
 	github.com/slidebolt/sdk-runner v1.20.3
-	github.com/slidebolt/sdk-types v1.20.6
+	github.com/slidebolt/sdk-types v1.20.7
 	github.com/stretchr/testify v1.11.1
 	github.com/vishen/go-chromecast v0.3.4
 )
