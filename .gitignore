@@ -23,3 +23,5 @@ scripts/.release_guard
 
 # AI-generated task files
 TASKS/
+
+**/.env.local
