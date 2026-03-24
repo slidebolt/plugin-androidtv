@@ -6,14 +6,14 @@ import (
 	"time"
 
 	domain "github.com/slidebolt/sb-domain"
-	managersdk "github.com/slidebolt/sb-manager-sdk"
+	testkit "github.com/slidebolt/sb-testkit"
 	messenger "github.com/slidebolt/sb-messenger-sdk"
 	storage "github.com/slidebolt/sb-storage-sdk"
 )
 
-func env(t *testing.T) (*managersdk.TestEnv, storage.Storage, *messenger.Commands) {
+func env(t *testing.T) (*testkit.TestEnv, storage.Storage, *messenger.Commands) {
 	t.Helper()
-	e := managersdk.NewTestEnv(t)
+	e := testkit.NewTestEnv(t)
 	e.Start("messenger")
 	e.Start("storage")
 	cmds := messenger.NewCommands(e.Messenger(), domain.LookupCommand)
