@@ -129,6 +129,17 @@ func (a *App) onDeviceFound(dev translate.AndroidTV) {
 		return
 	}
 	a.discoveries = append(a.discoveries, dev)
+	device := domain.Device{
+		ID: dev.DeviceID, Plugin: PluginID, Name: dev.SourceName, Entities: []domain.Entity{},
+		Meta: map[string]json.RawMessage{
+			"address": json.RawMessage(fmt.Sprintf(`"%s"`, dev.Address)),
+			"port":    json.RawMessage(fmt.Sprintf(`%d`, dev.Port)),
+		},
+	}
+	if err := a.store.Save(device); err != nil {
+		log.Printf("plugin-androidtv: failed to save device %s: %v", dev.DeviceID, err)
+		return
+	}
 	entity := domain.Entity{
 		ID:       dev.DeviceID,
 		Plugin:   PluginID,
