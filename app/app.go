@@ -9,11 +9,13 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	contract "github.com/slidebolt/sb-contract"
 	domain "github.com/slidebolt/sb-domain"
+	media "github.com/slidebolt/sb-media-sdk"
 	messenger "github.com/slidebolt/sb-messenger-sdk"
 	storage "github.com/slidebolt/sb-storage-sdk"
 
@@ -27,6 +29,7 @@ type App struct {
 	msg         messenger.Messenger
 	store       storage.Storage
 	cmd         *messenger.Commands
+	media       *media.Client
 	subs        []messenger.Subscription
 	discovery   *translate.Discovery
 	ctx         context.Context
@@ -43,7 +46,7 @@ func (a *App) Hello() contract.HelloResponse {
 		Kind:            contract.KindPlugin,
 		ContractVersion: contract.ContractVersion,
 		Definitions:     contract.DescribePlugin("Android TV", "Discovers Android TV receivers and exposes provider-neutral media players.", "media_player"),
-		DependsOn:       []string{"messenger", "storage"},
+		DependsOn:       []string{"messenger", "storage", "media"},
 	}
 }
 
@@ -59,6 +62,7 @@ func (a *App) OnStart(deps map[string]json.RawMessage) (json.RawMessage, error) 
 		return nil, fmt.Errorf("connect storage: %w", err)
 	}
 	a.store = store
+	a.media = media.NewClient(msg)
 
 	a.cmd = messenger.NewCommands(msg, domain.LookupCommand)
 	sub, err := a.cmd.Receive(PluginID+".>", a.handleCommand)
@@ -185,7 +189,32 @@ func (a *App) handleCommand(addr messenger.Address, cmd any) {
 
 	switch c := cmd.(type) {
 	case domain.MediaPlay:
-		a.updateMediaState(entity, func(s *domain.MediaPlayer) { s.State = "playing" })
+		if c.Source == nil {
+			a.updateMediaState(entity, func(s *domain.MediaPlayer) { s.State = "playing" })
+			break
+		}
+		provider := ""
+		if c.Source.Item != nil {
+			provider = c.Source.Item.Provider
+		} else if parts := strings.Split(c.Source.Entity, "."); len(parts) > 0 {
+			provider = parts[0]
+		}
+		resolved, resolveErr := a.media.Resolve(provider, media.ResolveRequest{Source: *c.Source})
+		if resolveErr != nil || resolved.Error != "" {
+			message := resolved.Error
+			if resolveErr != nil {
+				message = resolveErr.Error()
+			}
+			a.updateMediaState(entity, func(s *domain.MediaPlayer) { s.State = "idle"; s.LastError = message })
+			break
+		}
+		a.updateMediaState(entity, func(s *domain.MediaPlayer) {
+			s.State = "playing"
+			s.Source = resolved.URL
+			s.Item = c.Source.Item
+			s.PositionMS = c.PositionMS
+			s.LastError = ""
+		})
 	case domain.MediaPause:
 		a.updateMediaState(entity, func(s *domain.MediaPlayer) { s.State = "paused" })
 	case domain.MediaStop:

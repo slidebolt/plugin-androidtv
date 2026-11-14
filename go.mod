@@ -5,8 +5,9 @@ go 1.26.1
 require (
 	github.com/grandcat/zeroconf v1.0.0
 	github.com/slidebolt/sb-contract v1.0.7
-	github.com/slidebolt/sb-domain v1.0.22
-	github.com/slidebolt/sb-messenger-sdk v1.0.8
+	github.com/slidebolt/sb-domain v1.0.24
+	github.com/slidebolt/sb-media-sdk v1.0.4
+	github.com/slidebolt/sb-messenger-sdk v1.0.9
 	github.com/slidebolt/sb-runtime v1.0.6
 	github.com/slidebolt/sb-storage-sdk v1.0.8
 	github.com/slidebolt/sb-testkit v1.0.15
