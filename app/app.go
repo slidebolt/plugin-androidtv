@@ -42,6 +42,7 @@ func (a *App) Hello() contract.HelloResponse {
 		ID:              PluginID,
 		Kind:            contract.KindPlugin,
 		ContractVersion: contract.ContractVersion,
+		Definitions:     contract.DescribePlugin("Android TV", "Discovers Android TV receivers and exposes provider-neutral media players.", "media_player"),
 		DependsOn:       []string{"messenger", "storage"},
 	}
 }
