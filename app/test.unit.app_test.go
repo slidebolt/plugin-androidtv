@@ -125,4 +125,17 @@ func TestPluginHello(t *testing.T) {
 	if hello.ID != PluginID {
 		t.Errorf("ID: got %q, want %q", hello.ID, PluginID)
 	}
+	if err := hello.Setup.Validate(); err != nil {
+		t.Fatalf("setup definition: %v", err)
+	}
+	if hello.Setup.Mode != "selectable" || hello.Setup.Category != "Media" {
+		t.Fatalf("setup = %+v", hello.Setup)
+	}
+	if len(hello.Setup.Fields) != 1 {
+		t.Fatalf("setup fields = %d, want 1", len(hello.Setup.Fields))
+	}
+	field := hello.Setup.Fields[0]
+	if field.Key != "discovery_timeout_ms" || field.Environment != "ANDROIDTV_DISCOVERY_TIMEOUT_MS" || field.Format != "integer" {
+		t.Fatalf("discovery field = %+v", field)
+	}
 }

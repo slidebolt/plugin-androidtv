@@ -47,6 +47,18 @@ func (a *App) Hello() contract.HelloResponse {
 		ContractVersion: contract.ContractVersion,
 		Definitions:     contract.DescribePlugin("Android TV", "Discovers Android TV receivers and exposes provider-neutral media players.", "media_player"),
 		DependsOn:       []string{"messenger", "storage", "media"},
+		Setup: contract.SelectableSetup("Media",
+			contract.SetupField{
+				Key:         "discovery_timeout_ms",
+				Environment: "ANDROIDTV_DISCOVERY_TIMEOUT_MS",
+				Name:        "Discovery timeout",
+				Description: "Maximum time in milliseconds to wait for Google Cast discovery responses.",
+				Control:     contract.SetupText,
+				Format:      "integer",
+				Advanced:    true,
+				Default:     json.RawMessage(`"3000"`),
+			},
+		),
 	}
 }
 
