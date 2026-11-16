@@ -41,11 +41,13 @@ type App struct {
 func New() *App { return &App{} }
 
 func (a *App) Hello() contract.HelloResponse {
+	definitions := contract.DescribePlugin("Android TV", "Discovers Android TV receivers and exposes provider-neutral media players.", "media_player")
+	definitions.DeviceClasses = []contract.DeviceClassDefinition{{Class: "media_player", Name: "Media player", Description: "An Android TV playback target.", SecurityGroups: []string{"media"}, EntityTypes: []string{"media_player"}}}
 	return contract.HelloResponse{
 		ID:              PluginID,
 		Kind:            contract.KindPlugin,
 		ContractVersion: contract.ContractVersion,
-		Definitions:     contract.DescribePlugin("Android TV", "Discovers Android TV receivers and exposes provider-neutral media players.", "media_player"),
+		Definitions:     definitions,
 		DependsOn:       []string{"messenger", "storage", "media"},
 		Setup: contract.SelectableSetup("Media",
 			contract.SetupField{
@@ -147,7 +149,7 @@ func (a *App) onDeviceFound(dev translate.AndroidTV) {
 	}
 	a.discoveries = append(a.discoveries, dev)
 	device := domain.Device{
-		ID: dev.DeviceID, Plugin: PluginID, Name: dev.SourceName, Entities: []domain.Entity{},
+		ID: dev.DeviceID, Plugin: PluginID, Class: "media_player", Name: dev.SourceName, SecurityGroups: []string{domain.SecurityGroupMedia}, Entities: []domain.Entity{},
 		Meta: map[string]json.RawMessage{
 			"address": json.RawMessage(fmt.Sprintf(`"%s"`, dev.Address)),
 			"port":    json.RawMessage(fmt.Sprintf(`%d`, dev.Port)),
